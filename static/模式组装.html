@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>模式组装 · 投递台</title>
+  <link rel="stylesheet" href="/styles.css"/>
+  <script src="/common.js"></script>
+</head>
+<body>
+<header class="顶栏">
+    <div class="牌">投递台</div>
+    <nav>
+      <a href="/">投递台</a>
+      <a href="/端点名册.html">端点名册</a>
+      <a href="/事件队列.html">事件队列</a>
+      <a href="/投递流水.html">投递流水</a>
+      <a href="/死信匣.html">死信匣</a>
+      <a href="/签名规.html">签名规</a>
+      <a href="/投递互证.html">投递互证</a>
+      <a href="/事件详情.html">事件详情</a>
+      <a href="/模式组装.html" class="亮">模式组装</a>
+    </nav>
+    <button class="按钮 次" type="button" onclick="fetch('/api/登出',{method:'POST'}).then(()=>location.href='/login')">退出</button>
+  </header>
+  <main class="主区">
+    <header class="页头">
+      <h1>模式组装</h1>
+      <p>骨签：旧模式字段序不得被新模式重排。甲式正文与页面写均保持甲序，新模式只作用于新式正文。</p>
+    </header>
+
+<section class="卷">
+  <label>来源号</label><input id="来源号" placeholder="例如 src-01"/>
+  <label>模式</label>
+  <select id="模式"><option value="甲式">甲式（旧序）</option><option value="新式">新式（新序）</option></select>
+  <button class="按钮" type="button" id="声明钮">声明模式（收不可变快照）</button>
+  <pre id="声明出" class="说明"></pre>
+</section>
+
+<section class="卷">
+  <label>正文 JSON（key 序任意，组装按声明模式冻结）</label>
+  <textarea id="正文" rows="6" class="说明" style="width:100%"></textarea>
+  <button class="按钮" type="button" id="组装钮">组装投递</button>
+  <p class="消息" id="组装消息"></p>
+</section>
+
+<section class="卷">
+  <h3>最近投递（按冻结字段序渲染）</h3>
+  <div class="表绕"><table>
+    <thead><tr><th>投递号</th><th>来源号</th><th>模式</th><th>版本</th><th>字段顺序本身</th><th>正文（按序）</th><th>归档</th></tr></thead>
+    <tbody id="投递表"></tbody>
+  </table></div>
+</section>
+
+<section class="卷">
+  <button class="按钮" type="button" id="对账钮">组装对账（联查声明列与正文字段序）</button>
+  <pre id="对账出" class="说明"></pre>
+</section>
+
+  </main>
+
+<script>
+const 甲序 = ['事件号','事件类型','端点键','载荷摘要','优先级'];
+const 新序 = ['事件号','优先级','载荷摘要','事件类型','端点键'];
+
+// 页面写：严格按投递冻结的字段顺序渲染，绝不按新序重排甲式
+function 按序渲染(正文, 序) {
+  const 出 = {};
+  for (const k of 序) if (k in 正文) 出[k] = 正文[k];
+  for (const k of Object.keys(正文)) if (!(k in 出)) 出[k] = 正文[k];
+  return JSON.stringify(出, null, 0);
+}
+
+async function 刷投递() {
+  const rows = await 投递台.getJSON('/api/模式/读集合');
+  const tb = document.getElementById('投递表'); tb.innerHTML = '';
+  for (const r of rows) {
+    const 序 = r.字段顺序 || [];
+    // 自检：甲式投递的页面字段序必须仍是甲序
+    if (r.模式 === '甲式' && JSON.stringify(序) !== JSON.stringify(甲序)) {
+      document.getElementById('组装消息').textContent = '序红：甲式投递字段序被重排！';
+    }
+    const tr = 投递台.行(
+      '<td>'+投递台.安全文本(r.投递号)+'</td>'+
+      '<td>'+投递台.安全文本(r.来源号)+'</td>'+
+      '<td>'+投递台.安全文本(r.模式)+'</td>'+
+      '<td>'+投递台.安全文本(r.模式版本)+'</td>'+
+      '<td class="说明">'+投递台.安全文本(序.join(' → '))+'</td>'+
+      '<td class="说明">'+投递台.安全文本(按序渲染(r.正文, 序))+'</td>'+
+      '<td>'+(r.归档 ? '归档(只读)' : '现行')+'</td>'
+    );
+    tb.appendChild(tr);
+  }
+}
+
+document.getElementById('声明钮').onclick = async () => {
+  try {
+    const r = await 投递台.postJSON('/api/模式/声明', {
+      来源号: document.getElementById('来源号').value,
+      模式: document.getElementById('模式').value,
+    });
+    document.getElementById('声明出').textContent = JSON.stringify(r, null, 2);
+  } catch (e) { document.getElementById('声明出').textContent = e.message; }
+};
+
+document.getElementById('组装钮').onclick = async () => {
+  const 消息 = document.getElementById('组装消息');
+  try {
+    let 正文 = {};
+    const txt = document.getElementById('正文').value.trim();
+    if (txt) 正文 = JSON.parse(txt);
+    const r = await 投递台.postJSON('/api/模式/组装', {
+      来源号: document.getElementById('来源号').value, 正文,
+    });
+    消息.textContent = '已组装，冻结字段顺序：' + (r.字段顺序 || []).join(' → ');
+    await 刷投递();
+  } catch (e) { 消息.textContent = e.message; }
+};
+
+document.getElementById('对账钮').onclick = async () => {
+  const rep = await 投递台.getJSON('/api/模式/对账');
+  const 红 = (rep.明细 || []).filter(x => !x.是否对齐)
+    .map(x => x.投递号 + ' 声明=' + x.声明模式 + ' 实际序=[' + (x.实际字段顺序||[]).join(',') + ']');
+  document.getElementById('对账出').textContent =
+    '总数 ' + rep.总数 + ' / 对齐 ' + rep.对齐数 + ' / 红 ' + rep.红数 +
+    (红.length ? '\n列红：\n' + 红.join('\n') : '\n全部对齐，无重排影子正文。') +
+    '\n\n' + JSON.stringify(rep, null, 2);
+};
+
+// 预填一个乱序正文，便于直观看到甲式被还原成甲序
+document.getElementById('正文').value = JSON.stringify({
+  优先级: '普通', 载荷摘要: 'inv=1', 端点键: 'ep-billing', 事件类型: 'invoice.paid', 事件号: 'EVT-DEMO'
+});
+刷投递();
+</script>
+
+</body>
+</html>

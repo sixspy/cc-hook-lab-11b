@@ -4,7 +4,7 @@ from pathlib import Path
 from flask import Flask, jsonify, redirect, request, send_from_directory
 
 from app import seed
-from app.services import 会话, 入队, 投递, 死信, 重试, 互证, 端点, 夹具, 说明, 签名目录
+from app.services import 会话, 入队, 投递, 死信, 重试, 互证, 端点, 夹具, 说明, 签名目录, 模式组装
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
@@ -12,6 +12,10 @@ _STATIC = Path(__file__).resolve().parent / "static"
 def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(_STATIC), static_url_path="")
     app.secret_key = os.environ.get("密钥", "hook-lab-dev")
+    # 骨签：旧模式字段序不得被新模式重排。
+    # 关闭 jsonify 的 key 排序，响应正文必须保留组装时刻冻结的字段序（甲式保持甲序），
+    # 否则出口会按 Unicode 码位把甲式正文重排。
+    app.json.sort_keys = False
 
     @app.before_request
     def _gate():
@@ -167,6 +171,58 @@ def create_app() -> Flask:
             return jsonify({"错误": name}), 404
         except ValueError as e:
             return jsonify({"错误": str(e)}), 400
+
+    # —— 模式组装：旧模式字段序不得被新模式重排 ——
+    @app.post("/api/模式/声明")
+    def api_模式声明():
+        body = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(模式组装.声明模式(body["来源号"], body["模式"]))
+        except (KeyError, ValueError) as e:
+            return jsonify({"错误": str(e)}), 400
+
+    @app.get("/api/模式/声明/<src>")
+    def api_模式声明查(src):
+        try:
+            return jsonify(模式组装.取声明(src))
+        except ValueError as e:
+            return jsonify({"错误": str(e)}), 404
+
+    @app.post("/api/模式/组装")
+    def api_模式组装():
+        body = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(模式组装.组装(body["来源号"], body.get("正文") or {}))
+        except (KeyError, ValueError) as e:
+            return jsonify({"错误": str(e)}), 400
+
+    @app.get("/api/模式/投递/<dlv>")
+    def api_模式投递详情(dlv):
+        try:
+            return jsonify(模式组装.投递详情(dlv))
+        except ValueError as e:
+            return jsonify({"错误": str(e)}), 404
+
+    @app.get("/api/模式/读集合")
+    def api_模式读集合():
+        模式 = request.args.get("模式")
+        return jsonify(模式组装.读集合(模式))
+
+    @app.get("/api/模式/归档/<mode>")
+    def api_模式归档(mode):
+        return jsonify(模式组装.归档轨(mode))
+
+    @app.post("/api/模式/退役")
+    def api_模式退役():
+        body = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(模式组装.退役模式(body["模式"]))
+        except (KeyError, ValueError) as e:
+            return jsonify({"错误": str(e)}), 400
+
+    @app.get("/api/模式/对账")
+    def api_模式对账():
+        return jsonify(模式组装.对账())
 
     @app.get("/api/空桩")
     def api_空桩():

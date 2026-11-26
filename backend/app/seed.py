@@ -68,6 +68,27 @@ CREATE TABLE IF NOT EXISTS 操作留痕 (
   事件号 TEXT NOT NULL DEFAULT '',
   详情 TEXT NOT NULL DEFAULT ''
 );
+-- 模式声明：每次改模式都新收一行不可变快照，版本号自增；现行取同来源最大版本
+CREATE TABLE IF NOT EXISTS 模式声明 (
+  来源号 TEXT NOT NULL,
+  版本 INTEGER NOT NULL,
+  模式 TEXT NOT NULL,
+  字段顺序 TEXT NOT NULL,
+  是否退役 INTEGER NOT NULL DEFAULT 0,
+  时刻 TEXT NOT NULL,
+  PRIMARY KEY (来源号, 版本)
+);
+-- 模式投递：组装时刻的模式/字段序/正文全部冻结成快照，旧序不被新声明回刷
+CREATE TABLE IF NOT EXISTS 模式投递 (
+  投递号 TEXT PRIMARY KEY,
+  来源号 TEXT NOT NULL,
+  模式版本 INTEGER NOT NULL,
+  模式 TEXT NOT NULL,
+  字段顺序 TEXT NOT NULL,
+  正文JSON TEXT NOT NULL,
+  归档 INTEGER NOT NULL DEFAULT 0,
+  时刻 TEXT NOT NULL
+);
 """
 
 
